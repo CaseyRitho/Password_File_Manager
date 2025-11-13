@@ -11,7 +11,9 @@
 #include <QPair>
 #include <QMessageBox>
 #include <QClipboard>
-
+#include <QCryptographicHash>
+#include <QFile>
+#include <QDataStream>
 
 
 QMainWindow *mainWindow;
@@ -27,14 +29,21 @@ void addPassword();
 void copyPassword();
 void removePassword();
 
+bool verifyMasterPassword();
 
+void loadPassword();
+void savePassword();
 
 
 int main(int argc, char *argv[]){
     QApplication app(argc, argv);
 
     setUpUI();
-    mainWindow->show();
+    if(verifyMasterPassword()){
+        loadPassword();
+        mainWindow->show();
+
+    }
     return app.exec();
 }
 
@@ -65,6 +74,7 @@ void setUpUI(){
     QObject::connect(copyButton, &QPushButton::clicked, copyPassword);
     QObject::connect(removeButton, &QPushButton::clicked, removePassword);
 
+    QObject::connect(QApplication::instance(), &QCoreApplication::aboutToQuit, savePassword);
 
     mainLayout->addWidget(passWordTable);
     mainLayout->addLayout(buttonLayout);
@@ -111,3 +121,69 @@ void removePassword(){
     }
 
 }
+
+
+bool verifyMasterPassword(){
+    QString input = QInputDialog::getText(nullptr, "Master Password", "Enter Master Password", QLineEdit::Password);
+    if(input.isEmpty()) return false;
+
+    QString storedHash = QCryptographicHash::hash(
+        QString("12345").toUtf8(),
+        QCryptographicHash::Sha256
+        ).toHex();
+
+    QString inputHash = QCryptographicHash::hash(
+        QString(input).toUtf8(),
+        QCryptographicHash::Sha256
+                            ).toHex();
+
+    return inputHash == storedHash;
+
+}
+
+void loadPassword(){
+
+    QFile file("passwords.dat");
+    if(file.open(QIODevice::WriteOnly)){
+        QDataStream in(&file);
+        QString data;
+        in >> data;
+
+        QStringList entries = data.split("/");
+
+        for(const QString& entry:entries){
+            QStringList parts = entry.split("|");
+            if(parts.size() == 3){
+                passwords[parts[0]] = qMakePair(parts[1], parts[2]);
+
+                int row = passWordTable->rowCount();
+                passWordTable->insertRow(row);
+                passWordTable->setItem(row,0,new QTableWidgetItem(parts[0]));
+                passWordTable->setItem(row,2,new QTableWidgetItem(parts[1]));
+                passWordTable->setItem(row,2,new QTableWidgetItem(parts[2]));
+
+
+            }
+        }
+        file.close();
+    }
+
+
+}
+
+void savePassword(){
+
+    QString data;
+
+    for(auto it = passwords.begin(); it != passwords.end();it++){
+        data = it.key() + "|" + it.value().first + "|" + it.value().second + "\n";
+    }
+
+    QFile file("passwords.dat");
+    if(file.open(QIODevice::WriteOnly)){
+        QDataStream out(&file);
+        out << data;
+        file.close();
+    }
+}
+
